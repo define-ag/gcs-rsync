@@ -135,7 +135,8 @@ pub struct RSync<T> {
     source: ReaderWriterInternal<T>,
     dest: ReaderWriterInternal<T>,
     restore_fs_mtime: bool,
-    filter: Option<RSyncFilter>,
+    include: Option<RSyncFilter>,
+    exclude: Option<RSyncFilter>,
 }
 
 impl<T> RSync<T>
@@ -147,7 +148,8 @@ where
             source: source.inner,
             dest: dest.inner,
             restore_fs_mtime: false,
-            filter: None,
+            include: None,
+            exclude: None,
         }
     }
 
@@ -156,15 +158,22 @@ where
         self
     }
 
-    pub fn with_filter(mut self, filter: Option<RSyncFilter>) -> Self {
-        self.filter = filter;
+    pub fn with_include_filter(mut self, filter: Option<RSyncFilter>) -> Self {
+        self.include = filter;
+        self
+    }
+
+    pub fn with_exclude_filter(mut self, filter: Option<RSyncFilter>) -> Self {
+        self.exclude = filter;
         self
     }
 
     fn is_match(&self, path: &RelativePath) -> bool {
-        match &self.filter {
-            None => true,
-            Some(filter) => filter.is_match(&path)
+        match (&self.include, &self.exclude) {
+            (None, None) => true,
+            (Some(include), None) => include.is_match(&path),
+            (None, Some(exclude)) => exclude.is_match(&path),
+            (Some(include), Some(exclude)) => include.is_match(&path) && exclude.is_match(&path)
         }
     }
 
