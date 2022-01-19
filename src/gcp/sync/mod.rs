@@ -413,7 +413,13 @@ pub struct RSyncFilter {
 }
 
 impl RSyncFilter {
-    pub fn new(filter: &str) -> RSyncResult<Self> {
+    pub fn new(filter: &Option<&str>) -> RSyncResult<Self> {
+        match filter {
+            Some(filter) => RSyncFilter::from_str(filter),
+            None => Err(RSyncError::InvalidRegexError),
+        }
+    }
+    pub fn from_str(filter: &str) -> RSyncResult<Self> {
         match Regex::new(filter) {
            Ok(re) => Ok(Self { re: re }),
            Err(_) => Err(RSyncError::InvalidRegexError)
