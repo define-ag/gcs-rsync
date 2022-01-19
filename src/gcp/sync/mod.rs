@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use bytes::Bytes;
 use futures::future::Either;
 use futures::{Future, Stream, StreamExt, TryStreamExt};
+use regex::Regex;
 
 use fs::FsClient;
 use gcs::GcsClient;
@@ -134,6 +135,7 @@ pub struct RSync<T> {
     source: ReaderWriterInternal<T>,
     dest: ReaderWriterInternal<T>,
     restore_fs_mtime: bool,
+    filter: Option<RSyncFilter>,
 }
 
 impl<T> RSync<T>
@@ -145,12 +147,25 @@ where
             source: source.inner,
             dest: dest.inner,
             restore_fs_mtime: false,
+            filter: None,
         }
     }
 
     pub fn with_restore_fs_mtime(mut self, restore_fs_mtime: bool) -> Self {
         self.restore_fs_mtime = restore_fs_mtime;
         self
+    }
+
+    pub fn with_filter(mut self, filter: Option<RSyncFilter>) -> Self {
+        self.filter = filter;
+        self
+    }
+
+    fn is_match(&self, path: &RelativePath) -> bool {
+        match &self.filter {
+            None => true,
+            Some(filter) => filter.is_match(&path)
+        }
     }
 
     async fn write_entry(
@@ -164,6 +179,8 @@ where
             .await?;
         Ok(())
     }
+
+   
 
     async fn sync_entry_crc32c(&self, path: &RelativePath) -> RSyncResult<RSyncStatus> {
         Ok(match self.dest.get_crc32c(path).await? {
@@ -261,6 +278,22 @@ where
             .list()
             .await
             .map_ok(move |path| async move { self.sync_entry(&path).await })
+    }
+
+    pub async fn sync_filtered(
+        &self,
+    ) -> impl Stream<Item = RSyncResult<impl Future<Output = RSyncResult<RSyncStatus>> + '_>> + '_
+    {
+        self.source
+            .list()
+            .await
+            .map_ok(move |path| async move { 
+                if self.is_match(&path) {
+                    self.sync_entry(&path).await 
+                } else {
+                    Ok(futures::future::ready(RSyncStatus::ignored("Excluded by regex filter", &path)).await)
+                }
+            })
     }
 
     async fn delete_extras(
@@ -368,6 +401,24 @@ impl RelativePath {
         }
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct RSyncFilter {
+    re: Regex,
+}
+
+impl RSyncFilter {
+    pub fn new(filter: &str) -> RSyncResult<Self> {
+        match Regex::new(filter) {
+           Ok(re) => Ok(Self { re: re }),
+           Err(_) => Err(RSyncError::InvalidRegexError)
+        }
+    }
+    fn is_match(&self, path: &RelativePath) -> bool {
+        self.re.is_match(&path.path)
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 struct Entry {
     path: RelativePath,
@@ -393,6 +444,7 @@ pub enum RSyncError {
         error: std::io::Error,
     },
     EmptyRelativePathError,
+    InvalidRegexError,
 }
 
 impl RSyncError {
@@ -422,6 +474,7 @@ pub enum RSyncStatus {
     Created(RelativePath),
     Updated { reason: String, path: RelativePath },
     AlreadySynced { reason: String, path: RelativePath },
+    Ignored { reason: String, path: RelativePath },
 }
 
 impl RSyncStatus {
@@ -435,6 +488,12 @@ impl RSyncStatus {
         let reason = reason.to_owned();
         let path = path.to_owned();
         Self::AlreadySynced { reason, path }
+    }
+    
+    fn ignored(reason: &str, path: &RelativePath) -> Self {
+        let reason = reason.to_owned();
+        let path = path.to_owned();
+        Self::Ignored { reason, path }
     }
 }
 
