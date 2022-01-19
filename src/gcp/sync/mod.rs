@@ -168,8 +168,8 @@ where
         match (&self.include, &self.exclude) {
             (None, None) => true,
             (Some(include), None) => include.is_match(&path),
-            (None, Some(exclude)) => exclude.is_match(&path),
-            (Some(include), Some(exclude)) => include.is_match(&path) && exclude.is_match(&path)
+            (None, Some(exclude)) => !exclude.is_match(&path),
+            (Some(include), Some(exclude)) => include.is_match(&path) && !exclude.is_match(&path)
         }
     }
 
