@@ -158,13 +158,9 @@ where
         self
     }
 
-    pub fn with_include_filter(mut self, filter: Option<RSyncFilter>) -> Self {
-        self.include = filter;
-        self
-    }
-
-    pub fn with_exclude_filter(mut self, filter: Option<RSyncFilter>) -> Self {
-        self.exclude = filter;
+    pub fn with_filters(mut self, include: Option<RSyncFilter>, exclude: Option<RSyncFilter>) -> Self {
+        self.include = include;
+        self.exclude = exclude;
         self
     }
 
